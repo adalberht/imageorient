@@ -24,6 +24,10 @@ var testFiles = []struct {
 	{"testdata/orientation_8.jpg", 8},
 }
 
+var dummyFunc = func(image image.Image) (image.Image, error) {
+	return nil, nil
+}
+
 func TestReadOrientation(t *testing.T) {
 	for _, tf := range testFiles {
 		f, err := os.Open(tf.path)
@@ -60,11 +64,9 @@ func TestDecodeShouldNotThrowErrorWhenNewDecoderIsPassingCompleteFixOperationFun
 	}
 
 	funcs := make(map[int]FixOrientationFunction)
-	f := func(image image.Image) error {
-		return nil
-	}
+
 	for i := 1; i <= 8; i++ {
-		funcs[i] = f
+		funcs[i] = dummyFunc
 	}
 	d := NewDecoder(funcs)
 

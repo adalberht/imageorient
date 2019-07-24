@@ -157,7 +157,7 @@ type Decoder interface {
 }
 
 // Function needed to fix the given image orientation
-type FixOrientationFunction func(img image.Image) error
+type FixOrientationFunction func(img image.Image) (image.Image, error)
 
 type decoder struct {
 	FixOrientationFunctions map[int]FixOrientationFunction
@@ -173,7 +173,7 @@ func (d *decoder) Decode(r io.Reader) (image.Image, string, error) {
 		return img, format, err
 	}
 	if orientation > 1 {
-		err = d.fixOrientation(img, orientation)
+		img, err = d.getFixedOrientationImage(img, orientation)
 	}
 	return img, format, err
 }
@@ -199,11 +199,11 @@ func (d *decoder) DecodeConfig(r io.Reader) (image.Config, string, error) {
 	return cfg, format, nil
 }
 
-// fixOrientation changes the image orientation based on the EXIF orientation tag value.
-func (d *decoder) fixOrientation(img image.Image, orientation int) error {
+// getFixedOrientationImage changes the image orientation based on the EXIF orientation tag value.
+func (d *decoder) getFixedOrientationImage(img image.Image, orientation int) (image.Image, error) {
 	filter, ok := d.FixOrientationFunctions[orientation]
 	if !ok {
-		return errors.New(fmt.Sprintf("orientation %d not found in fixOrientationFunctions", orientation))
+		return nil, errors.New(fmt.Sprintf("orientation %d not found in fixOrientationFunctions", orientation))
 	}
 	return filter(img)
 }
