@@ -1,3 +1,3 @@
-module github.com/disintegration/imageorient
+module github.com/adalberht/imageorient
 
-require github.com/disintegration/gift v1.1.2
+go 1.12

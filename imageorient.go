@@ -9,51 +9,17 @@ package imageorient
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
+	"fmt"
 	"image"
 	"io"
 	"io/ioutil"
-
-	"github.com/disintegration/gift"
 )
 
 // maxBufLen is the maximum size of a buffer that should be enough to read
 // the EXIF metadata. According to the EXIF specs, it is located inside the
 // APP1 block that goes right after the start of image (SOI).
 const maxBufLen = 1 << 20
-
-// Decode decodes an image and changes its orientation
-// according to the EXIF orientation tag (if present).
-func Decode(r io.Reader) (image.Image, string, error) {
-	orientation, r := getOrientation(r)
-
-	img, format, err := image.Decode(r)
-	if err != nil {
-		return img, format, err
-	}
-
-	return fixOrientation(img, orientation), format, nil
-}
-
-// DecodeConfig decodes the color model and dimensions of an image
-// with the respect to the EXIF orientation tag (if present).
-//
-// Note that after using imageorient.Decode on the same image,
-// the color model of the decoded image may be different if the
-// orientation-related transformation is needed.
-func DecodeConfig(r io.Reader) (image.Config, string, error) {
-	orientation, r := getOrientation(r)
-
-	cfg, format, err := image.DecodeConfig(r)
-	if err != nil {
-		return cfg, format, err
-	}
-
-	if orientation >= 5 && orientation <= 8 {
-		cfg.Width, cfg.Height = cfg.Height, cfg.Width
-	}
-
-	return cfg, format, nil
-}
 
 // getOrientation returns the EXIF orientation tag from the given image
 // and a new io.Reader with the same state as the original reader r.
@@ -185,25 +151,65 @@ func readOrientation(r io.Reader) int {
 	return 0 // Missing orientation tag.
 }
 
-// Filters needed to fix the given image orientation.
-var filters = map[int]gift.Filter{
-	2: gift.FlipHorizontal(),
-	3: gift.Rotate180(),
-	4: gift.FlipVertical(),
-	5: gift.Transpose(),
-	6: gift.Rotate270(),
-	7: gift.Transverse(),
-	8: gift.Rotate90(),
+type Decoder interface {
+	Decode(r io.Reader) (image.Image, string, error)
+	DecodeConfig(r io.Reader) (image.Config, string, error)
+}
+
+// Function needed to fix the given image orientation
+type FixOrientationFunction func(img image.Image) error
+
+type decoder struct {
+	FixOrientationFunctions map[int]FixOrientationFunction
+}
+
+// Decode decodes an image and changes its orientation
+// according to the EXIF orientation tag (if present).
+func (d *decoder) Decode(r io.Reader) (image.Image, string, error) {
+	orientation, r := getOrientation(r)
+
+	img, format, err := image.Decode(r)
+	if err != nil {
+		return img, format, err
+	}
+	if orientation > 1 {
+		err = d.fixOrientation(img, orientation)
+	}
+	return img, format, err
+}
+
+// DecodeConfig decodes the color model and dimensions of an image
+// with the respect to the EXIF orientation tag (if present).
+//
+// Note that after using imageorient.Decode on the same image,
+// the color model of the decoded image may be different if the
+// orientation-related transformation is needed.
+func (d *decoder) DecodeConfig(r io.Reader) (image.Config, string, error) {
+	orientation, r := getOrientation(r)
+
+	cfg, format, err := image.DecodeConfig(r)
+	if err != nil {
+		return cfg, format, err
+	}
+
+	if orientation >= 5 && orientation <= 8 {
+		cfg.Width, cfg.Height = cfg.Height, cfg.Width
+	}
+
+	return cfg, format, nil
 }
 
 // fixOrientation changes the image orientation based on the EXIF orientation tag value.
-func fixOrientation(img image.Image, orientation int) image.Image {
-	filter, ok := filters[orientation]
+func (d *decoder) fixOrientation(img image.Image, orientation int) error {
+	filter, ok := d.FixOrientationFunctions[orientation]
 	if !ok {
-		return img
+		return errors.New(fmt.Sprintf("orientation %d not found in fixOrientationFunctions", orientation))
 	}
-	g := gift.New(filter)
-	newImg := image.NewRGBA(g.Bounds(img.Bounds()))
-	g.Draw(newImg, img)
-	return newImg
+	return filter(img)
+}
+
+func NewDecoder(fixOrientationFunctions map[int]FixOrientationFunction) Decoder {
+	return &decoder{
+		FixOrientationFunctions: fixOrientationFunctions,
+	}
 }
